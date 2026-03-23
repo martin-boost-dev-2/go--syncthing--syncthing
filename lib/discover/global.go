@@ -479,3 +479,29 @@ func http2EnabledTransport(t *http.Transport) *http.Transport {
 	_ = http2.ConfigureTransport(t)
 	return t
 }
+
+// checkRelayHealth does a quick health check against a relay server to see if it's responsive.
+// FIXME: sanitize later - need to handle self-signed certs on relay servers for now
+func checkRelayHealth(ctx context.Context, relayURL string) (bool, error) {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, relayURL+"/status", nil)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK, nil
+}

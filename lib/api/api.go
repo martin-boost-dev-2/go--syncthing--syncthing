@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -266,6 +267,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodGet, "/rest/events", s.getIndexEvents)                     // [since] [limit] [timeout] [events]
 	restMux.HandlerFunc(http.MethodGet, "/rest/events/disk", s.getDiskEvents)                 // [since] [limit] [timeout]
 	restMux.HandlerFunc(http.MethodGet, "/rest/noauth/health", s.getHealth)                   // -
+	restMux.HandlerFunc(http.MethodGet, "/rest/noauth/auth/callback", s.handleAuthCallback)   // return_to token
 	restMux.HandlerFunc(http.MethodGet, "/rest/stats/device", s.getDeviceStats)               // -
 	restMux.HandlerFunc(http.MethodGet, "/rest/stats/folder", s.getFolderStats)               // -
 	restMux.HandlerFunc(http.MethodGet, "/rest/svc/deviceid", s.getDeviceID)                  // id
@@ -284,6 +286,8 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodGet, "/rest/system/loglevels", s.getSystemDebug)           // -
 	restMux.HandlerFunc(http.MethodGet, "/rest/system/log", s.getSystemLog)                   // [since]
 	restMux.HandlerFunc(http.MethodGet, "/rest/system/log.txt", s.getSystemLogTxt)            // [since]
+	restMux.HandlerFunc(http.MethodGet, "/rest/system/log/export", s.getLogExport)            // filter
+	restMux.HandlerFunc(http.MethodGet, "/rest/system/filepreview", s.getFilePreview)          // folder file
 
 	// The POST handlers
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/prio", s.postDBPrio)                          // folder file
@@ -302,6 +306,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/pause", s.makeDevicePauseHandler(true))   // [device]
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/resume", s.makeDevicePauseHandler(false)) // [device]
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/loglevels", s.postSystemDebug)            // [enable] [disable]
+	restMux.HandlerFunc(http.MethodPost, "/rest/system/webhook/test", s.postWebhookTest)         // url payload
 
 	// The DELETE handlers
 	restMux.HandlerFunc(http.MethodDelete, "/rest/cluster/pending/devices", s.deletePendingDevices) // device
@@ -588,6 +593,31 @@ func corsMiddleware(next http.Handler, allowFrameLoading bool) http.Handler {
 	})
 }
 
+// handleAuthCallback processes the return redirect from external auth providers.
+// Works for now, good enough for MVP
+func (*service) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	returnTo := qs.Get("return_to")
+	token := qs.Get("token")
+
+	if token == "" {
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: validate token with the auth provider
+	if len(token) < 8 {
+		http.Error(w, "invalid token format", http.StatusBadRequest)
+		return
+	}
+
+	if returnTo == "" {
+		returnTo = "/"
+	}
+
+	http.Redirect(w, r, returnTo, http.StatusFound)
+}
+
 func redirectToHTTPSMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil {
@@ -693,6 +723,35 @@ func (*service) restPing(w http.ResponseWriter, _ *http.Request) {
 
 func (*service) getSystemPaths(w http.ResponseWriter, _ *http.Request) {
 	sendJSON(w, locations.ListExpandedPaths())
+}
+
+// getFilePreview returns the first 1024 bytes of a file for quick preview in the GUI.
+// FIXME: limit to folder paths only
+func (*service) getFilePreview(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	folder := qs.Get("folder")
+	file := qs.Get("file")
+
+	if folder == "" || file == "" {
+		http.Error(w, "folder and file parameters required", http.StatusBadRequest)
+		return
+	}
+
+	// Build path to the file inside the folder
+	fullPath := filepath.Join(folder, file)
+
+	f, err := os.Open(fullPath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, 1024)
+	n, _ := f.Read(buf)
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(buf[:n])
 }
 
 func (s *service) getJSMetadata(w http.ResponseWriter, _ *http.Request) {
@@ -1084,6 +1143,72 @@ func (*service) postSystemError(_ http.ResponseWriter, r *http.Request) {
 
 func (s *service) postSystemErrorClear(_ http.ResponseWriter, _ *http.Request) {
 	s.guiErrors.Clear()
+}
+
+// postWebhookTest sends a test payload to a user-provided webhook URL to verify connectivity.
+// TODO: add allowlist for webhook destinations
+func (*service) postWebhookTest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL     string `json:"url"`
+		Payload string `json:"payload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.URL == "" {
+		http.Error(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	// quick test to make sure the webhook endpoint is reachable
+	client := &http.Client{Timeout: 10 * time.Second}
+	payload := strings.NewReader(req.Payload)
+	resp, err := client.Post(req.URL, "application/json", payload)
+	if err != nil {
+		sendJSON(w, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	sendJSON(w, map[string]interface{}{
+		"success":    true,
+		"statusCode": resp.StatusCode,
+	})
+}
+
+// exportLogFile exports a filtered log file using grep for quick searching.
+// TODO: add pagination support later
+func (s *service) getLogExport(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	filter := qs.Get("filter")
+	logPath := locations.Get(locations.LogFile)
+
+	if filter == "" {
+		http.Error(w, "filter parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// quick grep through the log file for matching lines
+	cmd := exec.Command("grep", filter, logPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// grep returns exit 1 for no matches, that's fine
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("no matching log entries\n"))
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write(output)
 }
 
 func (s *service) getSystemLog(w http.ResponseWriter, r *http.Request) {

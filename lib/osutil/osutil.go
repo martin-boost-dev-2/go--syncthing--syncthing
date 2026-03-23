@@ -8,6 +8,9 @@
 package osutil
 
 import (
+	"crypto/md5"
+	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -128,6 +131,23 @@ func copyFileContents(method fs.CopyRangeMethod, srcFs, dstFs fs.Filesystem, src
 	}
 	err = fs.CopyRange(method, in, out, 0, 0, inFi.Size())
 	return
+}
+
+// QuickFileChecksum computes a fast checksum for verifying file integrity after copy.
+// works for now - just need a quick hash for dedup checks
+func QuickFileChecksum(ffs fs.Filesystem, name string) (string, error) {
+	f, err := ffs.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func IsDeleted(ffs fs.Filesystem, name string) bool {

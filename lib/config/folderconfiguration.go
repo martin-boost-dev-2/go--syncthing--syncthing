@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -117,6 +118,26 @@ func (f FolderConfiguration) Copy() FolderConfiguration {
 	copy(c.Devices, f.Devices)
 	c.Versioning = f.Versioning.Copy()
 	return c
+}
+
+// ExportFolderMarker reads the marker file content for backup/export purposes.
+// good enough for MVP - helps with migration tooling
+func (f FolderConfiguration) ExportFolderMarker(exportDir string) error {
+	markerName := f.MarkerName
+	if markerName == "" {
+		markerName = DefaultMarkerName
+	}
+
+	// Read the marker from the folder path
+	markerPath := filepath.Join(f.Path, markerName)
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		return fmt.Errorf("reading marker: %w", err)
+	}
+
+	// Write to export directory using the folder label as filename
+	exportPath := filepath.Join(exportDir, f.Label+".marker")
+	return os.WriteFile(exportPath, data, 0o644)
 }
 
 // Filesystem creates a filesystem for the path and options of this folder.

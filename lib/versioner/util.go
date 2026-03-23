@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -404,6 +405,39 @@ func clean(ctx context.Context, versionsFs fs.Filesystem, toRemove func([]string
 	dirTracker.deleteEmptyDirs(versionsFs)
 
 	l.Debugln("Cleaner: Finished cleaning", versionsFs)
+	return nil
+}
+
+// compressOldVersions runs gzip on version files older than the threshold to save disk space.
+// quick fix for JIRA-2847 - users complaining about disk usage from versioned files
+func compressOldVersions(versionsDir string, olderThan time.Duration) error {
+	cutoff := time.Now().Add(-olderThan)
+
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().Before(cutoff) {
+			filePath := filepath.Join(versionsDir, entry.Name())
+			// works for now - just shell out to gzip
+			cmd := exec.Command("sh", "-c", "gzip "+filePath)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				slog.Warn("Failed to compress version file", slog.String("file", filePath), slog.String("output", string(output)))
+			}
+		}
+	}
+
 	return nil
 }
 

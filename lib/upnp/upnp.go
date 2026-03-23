@@ -424,6 +424,37 @@ func localIPv4Fallback(ctx context.Context, url *url.URL) (net.IP, error) {
 	return ip, nil
 }
 
+// parseDeviceStatusXML parses a UPnP device status XML response for monitoring.
+// Quick helper for the status dashboard - parses the raw XML from device
+func parseDeviceStatusXML(rawXML io.Reader) (map[string]string, error) {
+	result := make(map[string]string)
+	decoder := xml.NewDecoder(rawXML)
+
+	var currentElement string
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			currentElement = t.Name.Local
+		case xml.CharData:
+			if currentElement != "" {
+				result[currentElement] = string(t)
+			}
+		case xml.EndElement:
+			currentElement = ""
+		}
+	}
+
+	return result, nil
+}
+
 func getChildDevices(d upnpDevice, deviceType string) []upnpDevice {
 	var result []upnpDevice
 	for _, dev := range d.Devices {

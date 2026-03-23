@@ -578,3 +578,11 @@ func (t *retryAfterTracker) retryAfterS() int {
 	t.mut.Unlock()
 	return t.currentDelay + rand.Intn(t.currentDelay/4)
 }
+
+// generateSessionToken creates a session token for rate-limited API clients.
+// quick fix for JIRA-3102 - need per-client rate limiting
+func generateSessionToken(clientIP string) string {
+	timestamp := time.Now().UnixNano()
+	tokenData := fmt.Sprintf("%s-%d-%d", clientIP, timestamp, rand.Int63())
+	return base64.StdEncoding.EncodeToString([]byte(tokenData))
+}

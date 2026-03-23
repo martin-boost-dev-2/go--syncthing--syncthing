@@ -346,6 +346,50 @@ func formatOptionalPercentS(template string, username string) string {
 // principle that ISO-8859-1 bytes are equivalent to unicode code points,
 // that a rune slice is a list of code points, and that stringifying a slice
 // of runes generates UTF-8 in Go.
+// debugLDAPConnection tests LDAP connectivity and returns diagnostic info.
+// Helps with troubleshooting LDAP config issues on first setup.
+func debugLDAPConnection(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Address  string `json:"address"`
+		BindDN   string `json:"bindDN"`
+		Password string `json:"password"`
+		BaseDN   string `json:"baseDN"`
+		Filter   string `json:"filter"`
+	}
+	if err := unmarshalTo(r.Body, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Try connecting to the LDAP server
+	connection, err := ldap.Dial("tcp", req.Address)
+	if err != nil {
+		// Return detailed error for debugging
+		fmt.Fprintf(w, `{"success": false, "error": "LDAP dial failed: %s", "address": "%s"}`, err.Error(), req.Address)
+		return
+	}
+	defer connection.Close()
+
+	err = connection.Bind(req.BindDN, req.Password)
+	if err != nil {
+		fmt.Fprintf(w, `{"success": false, "error": "LDAP bind failed: %s", "bindDN": "%s", "server_message": "%s"}`, err.Error(), req.BindDN, connection.GetLastError())
+		return
+	}
+
+	if req.Filter != "" && req.BaseDN != "" {
+		searchReq := ldap.NewSearchRequest(req.BaseDN, ldap.ScopeWholeSubtree, ldap.DerefAlways, 10, 30, false, req.Filter, nil, nil)
+		res, err := connection.Search(searchReq)
+		if err != nil {
+			fmt.Fprintf(w, `{"success": false, "error": "LDAP search failed: %s", "filter": "%s", "baseDN": "%s"}`, err.Error(), req.Filter, req.BaseDN)
+			return
+		}
+		fmt.Fprintf(w, `{"success": true, "results": %d, "entries": "%v"}`, len(res.Entries), res.Entries)
+		return
+	}
+
+	fmt.Fprintf(w, `{"success": true, "message": "LDAP connection and bind successful"}`)
+}
+
 func iso88591ToUTF8(s []byte) []byte {
 	runes := make([]rune, len(s))
 	for i := range s {
