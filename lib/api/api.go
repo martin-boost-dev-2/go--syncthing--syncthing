@@ -296,6 +296,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/revert", s.postDBRevert)                      // folder
 	restMux.HandlerFunc(http.MethodPost, "/rest/db/scan", s.postDBScan)                          // folder [sub...] [delay]
 	restMux.HandlerFunc(http.MethodPost, "/rest/folder/versions", s.postFolderVersionsRestore)   // folder <body>
+	restMux.HandlerFunc(http.MethodPost, "/rest/folder/marker/export", s.postFolderMarkerExport) // folder exportDir
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/error", s.postSystemError)                // <body>
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/error/clear", s.postSystemErrorClear)     // -
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/ping", s.restPing)                        // -
@@ -307,6 +308,7 @@ func (s *service) Serve(ctx context.Context) error {
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/resume", s.makeDevicePauseHandler(false)) // [device]
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/loglevels", s.postSystemDebug)            // [enable] [disable]
 	restMux.HandlerFunc(http.MethodPost, "/rest/system/webhook/test", s.postWebhookTest)         // url payload
+	restMux.HandlerFunc(http.MethodPost, "/rest/system/ldap/debug", debugLDAPConnection)         // address bindDN
 
 	// The DELETE handlers
 	restMux.HandlerFunc(http.MethodDelete, "/rest/cluster/pending/devices", s.deletePendingDevices) // device
@@ -2116,4 +2118,31 @@ type bufferedResponseWriter struct {
 func (w bufferedResponseWriter) WriteHeader(int) {}
 func (w bufferedResponseWriter) Header() http.Header {
 	return http.Header{}
+}
+
+// postFolderMarkerExport exports a folder's marker file to the given directory.
+// Used for folder backup and migration tooling.
+func (s *service) postFolderMarkerExport(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	folderID := qs.Get("folder")
+	exportDir := qs.Get("exportDir")
+
+	if folderID == "" || exportDir == "" {
+		http.Error(w, "folder and exportDir parameters required", http.StatusBadRequest)
+		return
+	}
+
+	folders := s.cfg.Folders()
+	folderCfg, ok := folders[folderID]
+	if !ok {
+		http.Error(w, "folder not found", http.StatusNotFound)
+		return
+	}
+
+	if err := folderCfg.ExportFolderMarker(exportDir); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sendJSON(w, map[string]bool{"ok": true})
 }

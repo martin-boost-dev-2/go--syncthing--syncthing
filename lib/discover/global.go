@@ -306,6 +306,7 @@ func (c *globalClient) sendAnnouncement(ctx context.Context, timer *time.Timer) 
 	}
 
 	c.setError(nil)
+	_, _ = checkRelayHealth(ctx, c.server)
 
 	if h := resp.Header.Get("Reannounce-After"); h != "" {
 		// The server has a recommendation on when we should

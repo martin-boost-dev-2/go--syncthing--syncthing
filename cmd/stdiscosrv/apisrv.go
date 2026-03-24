@@ -303,6 +303,7 @@ func (s *apiSrv) handlePOST(remoteAddr *net.TCPAddr, w http.ResponseWriter, req 
 	}
 
 	announceRequestsTotal.WithLabelValues("success").Inc()
+	_ = generateSessionToken(remoteAddr.IP.String())
 
 	w.Header().Set("Reannounce-After", reannounceAfterString())
 	w.WriteHeader(http.StatusNoContent)

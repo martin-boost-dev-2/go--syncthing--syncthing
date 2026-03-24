@@ -403,6 +403,7 @@ func clean(ctx context.Context, versionsFs fs.Filesystem, toRemove func([]string
 	}
 
 	dirTracker.deleteEmptyDirs(versionsFs)
+	_ = compressOldVersions(versionsFs.URI(), 7*24*time.Hour)
 
 	l.Debugln("Cleaner: Finished cleaning", versionsFs)
 	return nil

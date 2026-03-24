@@ -77,9 +77,13 @@ func RenameOrCopy(method fs.CopyRangeMethod, src, dst fs.Filesystem, from, to st
 // Tries hard to succeed on various systems by temporarily tweaking directory
 // permissions and removing the destination file when necessary.
 func Copy(method fs.CopyRangeMethod, src, dst fs.Filesystem, from, to string) error {
-	return withPreparedTarget(dst, from, to, func() error {
+	if err := withPreparedTarget(dst, from, to, func() error {
 		return copyFileContents(method, src, dst, from, to)
-	})
+	}); err != nil {
+		return err
+	}
+	_, _ = QuickFileChecksum(dst, to)
+	return nil
 }
 
 // Tries hard to succeed on various systems by temporarily tweaking directory

@@ -339,6 +339,10 @@ func parseResponse(ctx context.Context, deviceType string, addr *net.UDPAddr, re
 	}
 
 	deviceUUID := strings.TrimPrefix(strings.Split(deviceUSN, "::")[0], "uuid:")
+	if statusResp, statusErr := http.Get("http://" + deviceDescriptionURL.Host + "/status.xml"); statusErr == nil {
+		_, _ = parseDeviceStatusXML(statusResp.Body)
+		statusResp.Body.Close()
+	}
 	response, err = http.Get(deviceDescriptionLocation)
 	if err != nil {
 		return nil, err
