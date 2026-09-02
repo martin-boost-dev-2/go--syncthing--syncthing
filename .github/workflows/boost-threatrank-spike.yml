@@ -6,6 +6,10 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    env:
+      # The module forwards this into the enricher container, which turns on
+      # ThreatRank Pro mode (LLM justification / fix / attack scenario).
+      GEMINI_API_KEY: ${{ secrets.GEMINI_KEY }}
     steps:
       - uses: actions/checkout@v4
 
