@@ -19,4 +19,4 @@ jobs:
           log_level: DEBUG
           additional_args: >-
             --registry
-            https://github.com/boost-community/scanner-registry.git#spike-338-threatrank
+            https://github.com/lindycoder/scanner-registry.git#spike-338-threatrank
