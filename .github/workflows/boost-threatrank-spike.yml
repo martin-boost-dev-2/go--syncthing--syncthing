@@ -1,0 +1,22 @@
+name: boost-threatrank-spike
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: BoostSecurity scan
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          api_endpoint: https://api.dev.boostsec.io
+          api_token: ${{ secrets.BOOST_API_KEY }}
+          registry_module: boostsecurityio/trivy-fs
+          scanner_id: trivy-fs-threatrank-spike
+          log_level: DEBUG
+          additional_args: >-
+            --registry
+            https://github.com/boost-community/scanner-registry.git#spike-338-threatrank
